@@ -13,8 +13,20 @@ if MARK_CONTEXT_PHONEMES: # The MARK_TEXT_PHONEMES is not compatible with REMOVE
 FS = 600 # Sampling frequency of the EMG signal
 FRAME_SIZE = 0.025 # Size of the frame in ms
 FRAME_SHIFT = 0.005 # Frame shift in ms
-STACKING_WIDTH = 15 # Width of stacking filter
-N_FEATURES = 5 # Number of calculated features
+STACKING_WIDTH = 10 # Width of stacking filter
+
+# Features:
+# - Mw:
+# - Pw
+# - Mr
+# - Pr
+# - zp
+# - H
+
+# In paper: ['Wm','Pw','Pr','zp','Mr']
+FEATURES_PER_FRAME = ['Mw','Pw','Pr','zp','Mr']
+
+N_FEATURES = len(FEATURES_PER_FRAME) # Number of calculated features
 N_CHANNELS = 7 # Number of EMG channels (including syncronization channel)
 
 #####################################

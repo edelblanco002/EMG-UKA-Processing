@@ -1,6 +1,7 @@
+from bar import printProgressBar
 from scipy.fftpack.pseudo_diffs import shift
 from globalVars import DIR_PATH, N_CHANNELS, REMOVE_NUMBERS, SCRIPT_PATH
-from globalVars import FS, FRAME_SHIFT, FRAME_SIZE, N_FEATURES, STACKING_WIDTH
+from globalVars import FS, FRAME_SHIFT, FRAME_SIZE, FEATURES_PER_FRAME, N_FEATURES, STACKING_WIDTH
 from globalVars import AUDIO_FRAME_SIZE, AUDIO_FRAME_SHIFT, N_FILTERS, N_COEF
 import math
 import numpy as np
@@ -57,7 +58,8 @@ def createFolders(session, speaker, folderName):
     try:
         os.makedirs(DIR_PATH + '/' + folderName + '/' + speaker + '/' + session)
     except OSError as error:
-        print(error)
+        pass
+        #print(error)
 
 def getLabelSegments(filename,srcFolderName,srcExt):
     # This function reads the HTK file related to the file and returns an array with the label names and their corresponding end boundaries
@@ -194,8 +196,13 @@ def extractFeatues():
 
             createFolders(session, speaker, 'features') 
 
+            utt = 0
+            numberOfUtterances = len(os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session))
+            printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
             for file in os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session):
-                print("     Processing: ",file)
+                
+                
+                #print("     Processing: ",file)
 
                 filename = DIR_PATH + '/emgSync/' + speaker + '/' + session + '/' + file
 
@@ -243,15 +250,21 @@ def extractFeatues():
                         pn = np.subtract(xn,wn)
                         rn = np.abs(pn) # rn: rectified pn
         
-                        # xmean = sum(xn)/len(xn)
-                        wmean = sum(wn)/len(wn)
-                        rmean = sum(rn)/len(rn)
-                        Pw = sum( [ abs(x)**2 for x in wn ] ) / len(wn)
-                        Pr = sum( [ abs(x)**2 for x in rn ] ) / len(rn)
-        
-                        z = zeroCrossingCount(pn)
+                        featuresDict = {}
+
+                        if 'Mw' in FEATURES_PER_FRAME:
+                            featuresDict['Mw'] = sum(wn)/len(wn)
+                        if 'Mr' in FEATURES_PER_FRAME:
+                            featuresDict['Mr'] = sum(rn)/len(rn)
+                        if 'Pw' in FEATURES_PER_FRAME:
+                            featuresDict['Pw'] = sum( [ abs(x)**2 for x in wn ] ) / len(wn)
+                        if 'Pr' in FEATURES_PER_FRAME:
+                            featuresDict['Pr'] = sum( [ abs(x)**2 for x in rn ] ) / len(rn)
+                        if 'zp' in FEATURES_PER_FRAME:
+                            featuresDict['zp'] = zeroCrossingCount(pn)
     
-                        TD0[i,j,:] = [wmean,Pw,Pr,z,rmean]
+                        for count, element in enumerate(FEATURES_PER_FRAME):
+                            TD0[i,j,count] = featuresDict[element]
     
                 # After features for all frames in all signals have been calculated, the 'features' matrix is going to be filled
                 for j in range(nFrames):
@@ -264,7 +277,9 @@ def extractFeatues():
                         features[j,start:end] = stackingFilter(TD0, i, j, k, nFeatures, nFrames)
 
                 np.save(filename.replace('emgSync','features'),features)
-    
+
+                utt += 1
+                printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
 
 def extractMFCCs():
     frameSize = AUDIO_FRAME_SIZE # In ms
@@ -282,11 +297,14 @@ def extractMFCCs():
 
             createFolders(session, speaker, 'mfccs')
 
+            utt = 0
+            numberOfUtterances = len(os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session))
+            printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
             for file in os.listdir(DIR_PATH + '/audioSync/' + speaker + '/' + session):
 
                 if file.endswith(".wav"):
 
-                    print("     Processing: ",file)
+                    #print("     Processing: ",file)
 
                     filename = DIR_PATH + '/audioSync/' + speaker + '/' + session + '/' + file
 
@@ -316,6 +334,9 @@ def extractMFCCs():
                         features[j,1:] = stackingFilter(TD0, 0, j, k, N_COEF, nFrames)
 
                     np.save(filename.replace('audioSync','mfccs').replace('.wav','.npy'),features)
+
+                    utt += 1
+                    printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
 
 def main(extracted='features'):
 
