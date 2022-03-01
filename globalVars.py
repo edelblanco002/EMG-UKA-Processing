@@ -16,17 +16,17 @@ FRAME_SHIFT = 0.005 # Frame shift in ms
 STACKING_WIDTH = 10 # Width of stacking filter
 
 # Features:
-# - Mw:
-# - Pw
-# - Mr
-# - Pr
-# - zp
-# - H
+# - Mw: Low Frequency Mean
+# - Pw: Low Frequency Power
+# - Mr: High Frequency Rectified Mean
+# - Pr: High Frequency Rectified Power
+# - zp: High Frequency Zero Crossing Rate
+# - H: Hilbert Transform
 
 # In paper: ['Wm','Pw','Pr','zp','Mr']
-FEATURES_PER_FRAME = ['Mw','Pw','Pr','zp','Mr']
+FEATURE_NAMES = ['Mw','Pw','Pr','zp','Mr']
 
-N_FEATURES = len(FEATURES_PER_FRAME) # Number of calculated features
+N_FEATURES = len(FEATURE_NAMES) # Number of calculated features
 N_CHANNELS = 7 # Number of EMG channels (including syncronization channel)
 
 #####################################

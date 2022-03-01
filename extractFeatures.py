@@ -1,7 +1,7 @@
 from bar import printProgressBar
 from scipy.fftpack.pseudo_diffs import shift
 from globalVars import DIR_PATH, N_CHANNELS, REMOVE_NUMBERS, SCRIPT_PATH
-from globalVars import FS, FRAME_SHIFT, FRAME_SIZE, FEATURES_PER_FRAME, N_FEATURES, STACKING_WIDTH
+from globalVars import FS, FRAME_SHIFT, FRAME_SIZE, FEATURE_NAMES, N_FEATURES, STACKING_WIDTH
 from globalVars import AUDIO_FRAME_SIZE, AUDIO_FRAME_SHIFT, N_FILTERS, N_COEF
 import math
 import numpy as np
@@ -252,18 +252,18 @@ def extractFeatues():
         
                         featuresDict = {}
 
-                        if 'Mw' in FEATURES_PER_FRAME:
+                        if 'Mw' in FEATURE_NAMES:
                             featuresDict['Mw'] = sum(wn)/len(wn)
-                        if 'Mr' in FEATURES_PER_FRAME:
+                        if 'Mr' in FEATURE_NAMES:
                             featuresDict['Mr'] = sum(rn)/len(rn)
-                        if 'Pw' in FEATURES_PER_FRAME:
+                        if 'Pw' in FEATURE_NAMES:
                             featuresDict['Pw'] = sum( [ abs(x)**2 for x in wn ] ) / len(wn)
-                        if 'Pr' in FEATURES_PER_FRAME:
+                        if 'Pr' in FEATURE_NAMES:
                             featuresDict['Pr'] = sum( [ abs(x)**2 for x in rn ] ) / len(rn)
-                        if 'zp' in FEATURES_PER_FRAME:
+                        if 'zp' in FEATURE_NAMES:
                             featuresDict['zp'] = zeroCrossingCount(pn)
     
-                        for count, element in enumerate(FEATURES_PER_FRAME):
+                        for count, element in enumerate(FEATURE_NAMES):
                             TD0[i,j,count] = featuresDict[element]
     
                 # After features for all frames in all signals have been calculated, the 'features' matrix is going to be filled
