@@ -13,4 +13,4 @@ import removeOffset
 
 #createHTK.main()
 #makePhonemeMap.main()
-extractFeatures.main()
+extractFeatures.main('hilbert')

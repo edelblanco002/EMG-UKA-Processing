@@ -3,11 +3,13 @@ from scipy.fftpack.pseudo_diffs import shift
 from globalVars import DIR_PATH, N_CHANNELS, REMOVE_NUMBERS, SCRIPT_PATH
 from globalVars import FS, FRAME_SHIFT, FRAME_SIZE, FEATURE_NAMES, N_FEATURES, STACKING_WIDTH
 from globalVars import AUDIO_FRAME_SIZE, AUDIO_FRAME_SHIFT, N_FILTERS, N_COEF
+from globalVars import HILBERT_INTERMEDIATE_FS, HILBERT_END_FS
 import math
 import numpy as np
 import os
 import python_speech_features as psf
 from scipy.io import wavfile
+from scipy.signal import butter, filtfilt, hilbert, resample
 import sys
 
 def buildPhoneDict():
@@ -54,12 +56,79 @@ def calculateAverage(sig):
 
     return averagedSignal
 
+def calculateNewLength(nSamples, actualFs, newFs):
+    duration = nSamples/actualFs
+    newLength = round(duration*newFs)
+    return newLength
+
 def createFolders(session, speaker, folderName):
     try:
         os.makedirs(DIR_PATH + '/' + folderName + '/' + speaker + '/' + session)
     except OSError as error:
         pass
         #print(error)
+
+def filterSignal(signal, fs, order=4, lowcut=0, highcut=0, btype='low'):
+    # This function filters the signal with a Butterworth pass filter
+
+    nyq = 0.5*fs
+    low = lowcut/nyq
+    high = highcut/nyq
+
+    if btype == 'band':
+        b, a = butter(order, [low, high], btype='band')
+    elif btype == 'low':
+        b, a = butter(order, low, btype='low')
+
+    """# The lenght of the filtered signal must be, at least, the padlen size, which is max(len(b),len(a))*3.
+    # If it is not, add zero padding
+    padlen = max(len(b), len(a))*3
+    if len(signal) < padlen:
+        paddingAdded = True
+        padLen = math.ceil((padlen - len(signal))/2)
+        signal = np.pad(signal,padlen,'edge')
+    else:
+        paddingAdded = False"""
+
+    filteredSignal = filtfilt(b, a, signal)
+
+    """# If padding was applied, remove it
+    if paddingAdded:
+        filteredSignal = filteredSignal[padlen:-padlen]"""
+
+    return filteredSignal
+
+def hilbertTransform(signal):
+
+    np.save(f"{SCRIPT_PATH}/signal.npy",signal)
+
+    # Resample signal
+    resampledSignal = resampleSignal(signal, actualFs=FS, newFs=HILBERT_INTERMEDIATE_FS)
+    np.save(f"{SCRIPT_PATH}/resampledSignal.npy",resampledSignal)
+
+    # Get Hilbert analytical signal and take absolute value
+    analyticSignal = hilbert(resampledSignal)
+    np.save(f"{SCRIPT_PATH}/analyticSignal.npy",analyticSignal)
+    analyticSignal = np.abs(analyticSignal)
+
+    # Apply a low filter with cut freq=20 Hz.
+    filteredSignal = filterSignal(analyticSignal, fs=HILBERT_INTERMEDIATE_FS, order=6, lowcut=20, btype='low')
+
+    np.save(f"{SCRIPT_PATH}/filteredSignal.npy",filteredSignal)
+    
+    # Downsample signal after calculating
+    downsampledSignal = resampleSignal(filteredSignal, actualFs=HILBERT_INTERMEDIATE_FS, newFs=HILBERT_END_FS)
+
+    np.save(f"{SCRIPT_PATH}/downsampledSignal.npy",downsampledSignal)
+
+    return downsampledSignal
+
+def resampleSignal(signal, actualFs, newFs):
+    newLength = calculateNewLength(len(signal), actualFs, newFs)
+
+    resampledSignal = resample(signal,newLength)
+
+    return resampledSignal
 
 def getLabelSegments(filename,srcFolderName,srcExt):
     # This function reads the HTK file related to the file and returns an array with the label names and their corresponding end boundaries
@@ -179,7 +248,7 @@ def zeroCrossingCount(frame):
     signs[signs == 0] = -1
     return len(np.where(np.diff(signs))[0])
 
-def extractFeatues():
+def extractFeatures():
     fs = FS
     frameSize = FRAME_SIZE # In ms
     frameShift = FRAME_SHIFT # In ms
@@ -214,7 +283,7 @@ def extractFeatues():
                 step = math.floor(frameShift*fs) # Length of frame shift in samples
                 nSamples = np.shape(signalSet)[0] # Number of samples into the emg signals
                 nFrames = int(math.ceil((nSamples-L)/step) + 1) # Number of frames resulting from the analysis with a window of choosen length and choosen frame shift
-    
+
                 nSignals = np.shape(signalSet[1])[0] - 1 # Number of emg signals in file. The last one (sync signal) is ignored
                 TD0 = np.zeros((nSignals,nFrames,nFeatures),dtype='float32') # This matrix will contain the features of each frame of each signal
 
@@ -242,13 +311,14 @@ def extractFeatues():
                         else: # The normal case
                             xn = signalEMG[start:end]
     
-                        # wn: double average of frame (used points are configured inside the function)
-                        wn = calculateAverage(xn)
-                        wn = calculateAverage(wn)
-    
-                        # pn = wn - xn
-                        pn = np.subtract(xn,wn)
-                        rn = np.abs(pn) # rn: rectified pn
+                        if any(ftr in ['Mw','Mr','Pw','Pr','zp'] for ftr in FEATURE_NAMES):
+                            # wn: double average of frame (used points are configured inside the function)
+                            wn = calculateAverage(xn)
+                            wn = calculateAverage(wn)
+        
+                            # pn = wn - xn
+                            pn = np.subtract(xn,wn)
+                            rn = np.abs(pn) # rn: rectified pn
         
                         featuresDict = {}
 
@@ -262,10 +332,11 @@ def extractFeatues():
                             featuresDict['Pr'] = sum( [ abs(x)**2 for x in rn ] ) / len(rn)
                         if 'zp' in FEATURE_NAMES:
                             featuresDict['zp'] = zeroCrossingCount(pn)
-    
+
                         for count, element in enumerate(FEATURE_NAMES):
                             TD0[i,j,count] = featuresDict[element]
-    
+                            count += 1
+
                 # After features for all frames in all signals have been calculated, the 'features' matrix is going to be filled
                 for j in range(nFrames):
                     phoneLabel = getPhoneLabel(j,L,step,fs,labelSegments)
@@ -280,6 +351,86 @@ def extractFeatues():
 
                 utt += 1
                 printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
+
+def extractHilbertTransform():
+    fs = HILBERT_END_FS
+    frameSize = FRAME_SIZE
+    frameShift = FRAME_SHIFT
+    k = STACKING_WIDTH # Number of frames put together for each frame
+
+    phoneDict = buildPhoneDict()
+
+    for speaker in os.listdir(DIR_PATH + '/emgSync'):
+        print("Processing speaker n. ",speaker)
+
+        for session in os.listdir(DIR_PATH + '/emgSync/' + speaker):
+            print("  Processing session ",session,':')
+
+            createFolders(session, speaker, 'hilbert')
+
+            utt = 0
+            numberOfUtterances = len(os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session))
+            printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
+            for file in os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session):
+
+                filename = DIR_PATH + '/emgSync/' + speaker + '/' + session + '/' + file
+
+                signalSet = np.load(filename)
+    
+                labelSegments = getLabelSegments(filename,'emgSync','.npy')
+
+                L = math.floor(frameSize*fs) # Length of frame in samples
+                step = math.floor(frameShift*fs) # Length of frame shift in samples
+                if step < 1:
+                    step = 1
+                nSamples = np.shape(signalSet)[0] # Number of samples into the emg signals
+                nSamples = calculateNewLength(nSamples, actualFs=FS, newFs=fs)
+                nFrames = int(math.ceil((nSamples-L)/step) + 1) # Number of frames resulting from the analysis with a window of choosen length and choosen frame shift
+
+                nSignals = np.shape(signalSet[1])[0] - 1 # Number of emg signals in file. The last one (sync signal) is ignored
+
+                # The features matrix will contain the segment of Hilbert transformed signal corresponding 
+                # to (2k + 1) frames, with the actual frame in central position. The first column is for the label.
+                features = np.zeros((nFrames,nSignals,L*(2*k+1)+1),dtype='float32')
+
+                # Get Hilbert transform a segment for each frame in each signal
+                for j in range(nFrames):
+                    start = j*step - L*k # The window starts k frames before actual frame
+                    end = start + L*(2*k + 1) # And ends (2k + 1) frames after the first frame
+
+                    phoneLabel = getPhoneLabel(j,L,step,fs,labelSegments)
+
+                    features[j,:,0] = float(phoneDict[phoneLabel])
+
+                    for i in range(nSignals):
+                        signalEMG = signalSet[:,i].astype(float)
+                        signalEMG -= np.mean(signalEMG) # Remove DC
+                        signalEMG = signalEMG/max(abs(signalEMG)) # Normalize
+    
+                        transformedSignal = hilbertTransform(signalEMG)
+
+                        frame = np.zeros((L*(2*k + 1)))
+
+                        # If the window lies out of signal, fill the resting array with NAN values
+                        if start < 0:
+                            frame[0:-start] = np.nan
+                            frame[-start:] = transformedSignal[:end]
+                        # In the last frame shifting, if the window exceeds the signal
+                        # fill the window with nan values
+                        elif end > len(transformedSignal):                            
+                            frame[len(transformedSignal)-end:] = np.nan
+                            frame[:len(transformedSignal)-end] = transformedSignal[start:]
+    
+                        else: # The normal case
+                            frame = transformedSignal[start:end]
+
+                        features[j,i,1:] = frame[:]
+
+                np.save(filename.replace('emgSync','hilbert'),features)
+
+                utt += 1
+                printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
+
 
 def extractMFCCs():
     frameSize = AUDIO_FRAME_SIZE # In ms
@@ -346,9 +497,11 @@ def main(extracted='features'):
         option = extracted
 
     if option == 'features': 
-        extractFeatues()
+        extractFeatures()
     elif option == 'mfccs':        
         extractMFCCs()
+    elif option == 'hilbert':
+        extractHilbertTransform()
 
 if __name__ == '__main__':
     main()

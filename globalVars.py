@@ -1,3 +1,5 @@
+import math
+
 DIR_PATH = '/mnt/ldisk/eder/EMG-UKA-Trial-Corpus' # The base path to the corpus to be processed
 #DIR_PATH = '/mnt/ldisk/eder/ReSSInt/Pilot2/Session2'
 SCRIPT_PATH = '/home/aholab/eder/scripts/EMG-UKA-Processing' # The path to the folder where those scripts are located
@@ -13,7 +15,15 @@ if MARK_CONTEXT_PHONEMES: # The MARK_TEXT_PHONEMES is not compatible with REMOVE
 FS = 600 # Sampling frequency of the EMG signal
 FRAME_SIZE = 0.025 # Size of the frame in ms
 FRAME_SHIFT = 0.005 # Frame shift in ms
-STACKING_WIDTH = 10 # Width of stacking filter
+STACKING_WIDTH = 15 # Width of stacking filter
+
+##########################################
+#   PARAMETERS FOR HILBERT CALCULATION   #
+##########################################
+
+HILBERT_INTERMEDIATE_FS = 1000 # The Fs at which signal is resampled to calculate the Hilbert transform
+HILBERT_END_FS = 100 # The Fs at which resulting Hilbert transform signal is resampled at the end
+
 
 # Features:
 # - Mw: Low Frequency Mean
@@ -21,17 +31,18 @@ STACKING_WIDTH = 10 # Width of stacking filter
 # - Mr: High Frequency Rectified Mean
 # - Pr: High Frequency Rectified Power
 # - zp: High Frequency Zero Crossing Rate
-# - H: Hilbert Transform
 
-# In paper: ['Wm','Pw','Pr','zp','Mr']
+# In paper: ['Mw','Pw','Pr','zp','Mr']
+
 FEATURE_NAMES = ['Mw','Pw','Pr','zp','Mr']
 
 N_FEATURES = len(FEATURE_NAMES) # Number of calculated features
+
 N_CHANNELS = 7 # Number of EMG channels (including syncronization channel)
 
-#####################################
-#   FEATURES FOR MFCC EXTRACTION    #
-#####################################
+#######################################
+#   PARAMETERS FOR MFCC EXTRACTION    #
+#######################################
 
 AUDIO_FRAME_SIZE = 0.016
 AUDIO_FRAME_SHIFT = 0.01
