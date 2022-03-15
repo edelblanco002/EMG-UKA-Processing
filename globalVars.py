@@ -15,14 +15,20 @@ if MARK_CONTEXT_PHONEMES: # The MARK_TEXT_PHONEMES is not compatible with REMOVE
 FS = 600 # Sampling frequency of the EMG signal
 FRAME_SIZE = 0.025 # Size of the frame in ms
 FRAME_SHIFT = 0.005 # Frame shift in ms
-STACKING_WIDTH = 15 # Width of stacking filter
+STACKING_WIDTH = 10 # Width of stacking filter
+# 'backwards': Only the frames BEFORE the central frame are stacked
+#       (final number of frames: STACKING_WIDTH + 1)
+# 'symmetric': The same number of frames are stacked before and after the central frame
+#       (final number of frames: 2*stacking filter width + 1)
+
+STACKING_MODE = 'backwards'
 
 ##########################################
 #   PARAMETERS FOR HILBERT CALCULATION   #
 ##########################################
 
 HILBERT_INTERMEDIATE_FS = 1000 # The Fs at which signal is resampled to calculate the Hilbert transform
-HILBERT_END_FS = 100 # The Fs at which resulting Hilbert transform signal is resampled at the end
+HILBERT_END_FS = 200 # The Fs at which resulting Hilbert transform signal is resampled at the end
 
 
 # Features:

@@ -1,7 +1,7 @@
 from bar import printProgressBar
 from scipy.fftpack.pseudo_diffs import shift
 from globalVars import DIR_PATH, N_CHANNELS, REMOVE_NUMBERS, SCRIPT_PATH
-from globalVars import FS, FRAME_SHIFT, FRAME_SIZE, FEATURE_NAMES, N_FEATURES, STACKING_WIDTH
+from globalVars import FS, FRAME_SHIFT, FRAME_SIZE, FEATURE_NAMES, N_FEATURES, STACKING_WIDTH, STACKING_MODE
 from globalVars import AUDIO_FRAME_SIZE, AUDIO_FRAME_SHIFT, N_FILTERS, N_COEF
 from globalVars import HILBERT_INTERMEDIATE_FS, HILBERT_END_FS
 import math
@@ -229,17 +229,22 @@ def stackingFilter(TD0, i, j, k, nFeatures,nFrames):
     # The stacking filter takes the features of the k previous frames, the actual frame and the k following frames,
     # and puts them together into a single array
 
-    td15 = [0]*(2*k+1)*nFeatures
+    if STACKING_MODE == 'symmetric':
+        tdN = [0]*(2*k+1)*nFeatures
+        frameRange = range(0,2*k + 1)
+    elif STACKING_MODE == 'backwards':
+        tdN = [0]*(k+1)*nFeatures
+        frameRange = range(0,k + 1)
 
-    for ind in range(0,2*k + 1):
+    for ind in frameRange:
         jj = j - k + ind
         
         if jj < 0 or jj >= nFrames: # If the range of the stacking filter exceeds the frame position,
-            td15[ind*nFeatures:(ind+1)*nFeatures] = [np.nan]*nFeatures # leave to 0 the features corresponding to those positions
+            tdN[ind*nFeatures:(ind+1)*nFeatures] = [np.nan]*nFeatures # leave to 0 the features corresponding to those positions
         else:
-            td15[ind*nFeatures:(ind+1)*nFeatures] = TD0[i,jj,:]
+            tdN[ind*nFeatures:(ind+1)*nFeatures] = TD0[i,jj,:]
 
-    return td15
+    return tdN
 
 def zeroCrossingCount(frame):
     # This function counts the zero crossings into the frame
@@ -290,7 +295,10 @@ def extractFeatures():
                 # The features matrix will contain the features that are going to characterize each frame:
                 # for each signal, the frame is passed by an stacking filter
                 # Then, the stacked features of the frame for all signals are put together in the array corresponfig to the frame
-                features = np.zeros((nFrames,nSignals*nFeatures*(2*k+1)+1),dtype='float32')
+                if STACKING_MODE == 'symmetric':
+                    features = np.zeros((nFrames,nSignals*nFeatures*(2*k+1)+1),dtype='float32')
+                elif STACKING_MODE == 'backwards':
+                    features = np.zeros((nFrames,nSignals*nFeatures*(k+1)+1),dtype='float32')
     
                 # Features extraction for each frame in each signal
                 for i in range(nSignals):
@@ -343,8 +351,12 @@ def extractFeatures():
                     features[j,0] = float(phoneDict[phoneLabel])
 
                     for i in range(nSignals):
-                        start = i*nFeatures*(2*k+1)+1
-                        end = (i+1)*nFeatures*(2*k+1)+1
+                        if STACKING_MODE == 'symmetric':
+                            start = i*nFeatures*(2*k+1)+1
+                            end = (i+1)*nFeatures*(2*k+1)+1
+                        elif STACKING_MODE == 'backwards':
+                            start = i*nFeatures*(k+1)+1
+                            end = (i+1)*nFeatures*(k+1)+1
                         features[j,start:end] = stackingFilter(TD0, i, j, k, nFeatures, nFrames)
 
                 np.save(filename.replace('emgSync','features'),features)
@@ -473,7 +485,10 @@ def extractMFCCs():
                     # The features matrix will contain the features that are going to characterize each frame:
                     # for each signal, the frame is passed by an stacking filter
                     # Then, the stacked features of the frame for all signals are put together in the array corresponfig to the frame
-                    features = np.zeros((nFrames,N_COEF*(2*k+1)+1),dtype='float32')
+                    if STACKING_MODE == 'symmetric':
+                        features = np.zeros((nFrames,N_COEF*(2*k+1)+1),dtype='float32')
+                    elif STACKING_MODE == 'backwards':
+                        features = np.zeros((nFrames,N_COEF*(k+1)+1),dtype='float32')
         
                     TD0[0,:,:] = psf.mfcc(audioSignal, samplerate=fs, winlen=AUDIO_FRAME_SIZE, winstep=AUDIO_FRAME_SHIFT, numcep=N_COEF, nfilt=N_FILTERS, winfunc=np.hamming)
         
