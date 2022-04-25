@@ -305,28 +305,34 @@ def extractFeatures():
                     signalEMG = signalSet[:,i].astype(float)
                     signalEMG -= np.mean(signalEMG) # Remove DC
                     signalEMG = signalEMG/max(abs(signalEMG)) # Normalize
-    
+
+                    # wn: double average of frame (used points are configured inside the function)
+                    lowFrecSignal = calculateAverage(signalEMG)
+                    lowFrecSignal = calculateAverage(lowFrecSignal)
+
+                    # pn = wn - xn
+                    highFrecSignal = np.subtract(signalEMG,lowFrecSignal)
+                    # rn: rectified pn
+                    rectHighFrecSignal = np.abs(highFrecSignal)
+
                     for j in range(nFrames):
                         start = j*step
                         end = start + L
     
                         # In the last frame shifting, if the window exceeds the signal
                         # the last sample of the signal is going to be repeated for filling the exceeding positions in frame
-                        if end > len(signalEMG)-1:                            
-                            xn = [signalEMG[-1]]*L
-                            xn[0:len(signalEMG)-end] = signalEMG[start:]
+                        if end > len(lowFrecSignal)-1:
+                            wn = [lowFrecSignal[-1]]*L
+                            wn[0:len(lowFrecSignal)-end] = lowFrecSignal[start:]
+                            pn = [highFrecSignal[-1]]*L
+                            pn[0:len(highFrecSignal)-end] = highFrecSignal[start:]
+                            rn = [rectHighFrecSignal[-1]]*L
+                            rn[0:len(rectHighFrecSignal)-end] = rectHighFrecSignal[start:]
     
                         else: # The normal case
-                            xn = signalEMG[start:end]
-    
-                        if any(ftr in ['Mw','Mr','Pw','Pr','zp'] for ftr in FEATURE_NAMES):
-                            # wn: double average of frame (used points are configured inside the function)
-                            wn = calculateAverage(xn)
-                            wn = calculateAverage(wn)
-        
-                            # pn = wn - xn
-                            pn = np.subtract(xn,wn)
-                            rn = np.abs(pn) # rn: rectified pn
+                            wn = lowFrecSignal[start:end]
+                            pn = highFrecSignal[start:end]
+                            rn = rectHighFrecSignal[start:end]
         
                         featuresDict = {}
 
