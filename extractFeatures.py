@@ -225,7 +225,7 @@ def getPhoneLabel(j,L,step,fs,labelSegments):
 
     return label
 
-def stackingFilter(TD0, i, j, k, nFeatures,nFrames):
+def stackingFilter(TD0, i, j, k, nFeatures,nFrames, ignoreChannels=False):
     # This function applies the stacking filter to a frame
     # The stacking filter takes the features of the k previous frames, the actual frame and the k following frames,
     # and puts them together into a single array
@@ -237,13 +237,19 @@ def stackingFilter(TD0, i, j, k, nFeatures,nFrames):
         tdN = [0]*(k+1)*nFeatures
         frameRange = range(0,k + 1)
 
+    # j represents the frames
     for ind in frameRange:
         jj = j - k + ind
         
         if jj < 0 or jj >= nFrames: # If the range of the stacking filter exceeds the frame position,
             tdN[ind*nFeatures:(ind+1)*nFeatures] = [np.nan]*nFeatures # leave to 0 the features corresponding to those positions
         else:
-            tdN[ind*nFeatures:(ind+1)*nFeatures] = TD0[i,jj,:]
+            # Normal case: the stacking filter is applied over a channel
+            if not ignoreChannels:
+                tdN[ind*nFeatures:(ind+1)*nFeatures] = TD0[i,jj,:]
+            # Special case (for autoencoder): There are no channels, so a single frame is taken
+            else:
+                tdN[ind*nFeatures:(ind+1)*nFeatures] = TD0[jj,:]
 
     return tdN
 
@@ -538,6 +544,102 @@ def extractHilbertTransform():
                 utt += 1
                 printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
 
+def extractEncodedFeatures():
+    import keras
+
+    fs = FS
+    frameSize = FRAME_SIZE # In ms
+    frameShift = FRAME_SHIFT # In ms
+    k = STACKING_WIDTH # Width of stacking filter
+
+    # Load encoder
+    encoderPath = f'{DIR_PATH}/autoencoders/encoder1.h5'
+    encoder = keras.models.load_model(encoderPath)
+
+    phoneDict = buildPhoneDict()
+
+    for speaker in os.listdir(DIR_PATH + '/emgSync'):
+        print("Processing speaker n. ",speaker)
+
+        for session in os.listdir(DIR_PATH + '/emgSync/' + speaker):
+            print("  Processing session ",session,':')
+
+            createFolders(session, speaker, 'encodedFeatures') 
+
+            utt = 0
+            numberOfUtterances = len(os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session))
+            printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
+            for file in os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session):
+                
+                
+                #print("     Processing: ",file)
+
+                filename = DIR_PATH + '/emgSync/' + speaker + '/' + session + '/' + file
+
+                signalSet = np.load(filename)
+
+                labelSegments = getLabelSegments(filename,'emgSync','.npy')
+
+                L = math.floor(frameSize*fs) # Length of frame in samples
+                ENCODER_OUTPUT_L = 16
+                step = math.floor(frameShift*fs) # Length of frame shift in samples
+                nSamples = np.shape(signalSet)[0] # Number of samples into the emg signals
+                nFrames = int(math.ceil((nSamples-L)/step) + 1) # Number of frames resulting from the analysis with a window of choosen length and choosen frame shift
+
+                nSignals = np.shape(signalSet[1])[0] - 1 # Number of emg signals in file. The last one (sync signal) is ignored
+                TD0 = np.zeros((nSignals,nFrames,L),dtype='float32') # This matrix will contain the EMG signal for each frame. THe first column serves to save the label
+
+                TD0_encoded = np.zeros((nFrames,ENCODER_OUTPUT_L),dtype='float32') # Matrix to save the encoded features
+
+                # The features matrix will contain the features that are going to characterize each frame:
+                # for each signal, the frame is passed by an stacking filter
+                # Then, the stacked features of the frame for all signals are put together in the array corresponfig to the frame
+                if STACKING_MODE == 'symmetric':
+                    encodedFeatures = np.zeros((nFrames,ENCODER_OUTPUT_L*(2*k+1)+1),dtype='float32')
+                elif STACKING_MODE == 'backwards':
+                    encodedFeatures = np.zeros((nFrames,ENCODER_OUTPUT_L*(k+1)+1),dtype='float32')
+
+                # Features extraction for each frame in each signal
+                for i in range(nSignals):
+                    signalEMG = signalSet[:,i].astype(float)
+                    signalEMG -= np.mean(signalEMG) # Remove DC
+                    signalEMG = signalEMG/max(abs(signalEMG)) # Normalize
+
+                    for j in range(nFrames):
+                        start = j*step
+                        end = start + L
+    
+                        phoneLabel = getPhoneLabel(j,L,step,fs,labelSegments)
+
+                        # In the last frame shifting, if the window exceeds the signal
+                        # the last sample of the signal is going to be repeated for filling the exceeding positions in frame
+                        if end > len(signalEMG):
+                            xn = [signalEMG[-1]]*L
+                            xn[0:len(signalEMG)-end] = signalEMG[start:]
+
+                        else: # The normal case
+                            xn = signalEMG[start:end]
+        
+                        TD0[i,j,:] = xn
+
+                # Stack the channels of a every single frame together
+                TD0 = np.transpose(TD0, (1,0,2))
+                stackedChannels = np.reshape(TD0,(-1,90))
+
+                # Encode frames
+                TD0_encoded[:] = encoder.predict(stackedChannels)
+
+                # After features for all frames in all signals have been calculated, the 'features' matrix is going to be filled
+                for j in range(nFrames):
+                    phoneLabel = getPhoneLabel(j,L,step,fs,labelSegments)
+                    encodedFeatures[j,0] = float(phoneDict[phoneLabel])
+                    encodedFeatures[j,1:] = stackingFilter(TD0_encoded, 0, j, k, ENCODER_OUTPUT_L, nFrames, ignoreChannels=True)
+
+                np.save(filename.replace('emgSync','encodedFeatures'),encodedFeatures)
+
+                utt += 1
+                printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
+
 
 def extractMFCCs():
     frameSize = AUDIO_FRAME_SIZE # In ms
@@ -614,6 +716,8 @@ def main(extracted='features'):
         extractHilbertTransform()
     elif option == 'emgs':
         extractEMGs()
+    elif option == 'encodedFeatures':
+        extractEncodedFeatures()
 
 if __name__ == '__main__':
     main()
