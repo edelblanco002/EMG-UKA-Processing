@@ -1,3 +1,4 @@
+from cProfile import label
 from bar import printProgressBar
 from scipy.fftpack.pseudo_diffs import shift
 from globalVars import DIR_PATH, N_CHANNELS, REMOVE_NUMBERS, SCRIPT_PATH
@@ -252,6 +253,94 @@ def zeroCrossingCount(frame):
     signs = np.sign(frame)
     signs[signs == 0] = -1
     return len(np.where(np.diff(signs))[0])
+
+def extractEMGs():
+    fs = FS
+    frameSize = FRAME_SIZE # In ms
+    frameShift = FRAME_SHIFT # In ms
+    k = STACKING_WIDTH # Width of stacking filter
+
+    phoneDict = buildPhoneDict()
+
+    for speaker in os.listdir(DIR_PATH + '/emgSync'):
+        print("Processing speaker n. ",speaker)
+
+        for session in os.listdir(DIR_PATH + '/emgSync/' + speaker):
+            print("  Processing session ",session,':')
+
+            createFolders(session, speaker, 'segmentedEMGs') 
+
+            utt = 0
+            numberOfUtterances = len(os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session))
+            printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
+            for file in os.listdir(DIR_PATH + '/emgSync/' + speaker + '/' + session):
+                
+                
+                #print("     Processing: ",file)
+
+                filename = DIR_PATH + '/emgSync/' + speaker + '/' + session + '/' + file
+
+                signalSet = np.load(filename)
+
+                labelSegments = getLabelSegments(filename,'emgSync','.npy')
+
+                L = math.floor(frameSize*fs) # Length of frame in samples
+                step = math.floor(frameShift*fs) # Length of frame shift in samples
+                nSamples = np.shape(signalSet)[0] # Number of samples into the emg signals
+                nFrames = int(math.ceil((nSamples-L)/step) + 1) # Number of frames resulting from the analysis with a window of choosen length and choosen frame shift
+
+                nSignals = np.shape(signalSet[1])[0] - 1 # Number of emg signals in file. The last one (sync signal) is ignored
+                TD0 = np.zeros((nSignals,nFrames,L),dtype='float32') # This matrix will contain the EMG signal for each frame. THe first column serves to save the label
+
+                # The features matrix will contain the features that are going to characterize each frame:
+                # for each signal, the frame is passed by an stacking filter
+                # Then, the stacked features of the frame for all signals are put together in the array corresponfig to the frame
+                if STACKING_MODE == 'symmetric':
+                    segmentedEMG = np.zeros((nFrames,nSignals*L*(2*k+1)+1),dtype='float32')
+                elif STACKING_MODE == 'backwards':
+                    segmentedEMG = np.zeros((nFrames,nSignals*L*(k+1)+1),dtype='float32')
+
+                # Features extraction for each frame in each signal
+                for i in range(nSignals):
+                    signalEMG = signalSet[:,i].astype(float)
+                    signalEMG -= np.mean(signalEMG) # Remove DC
+                    signalEMG = signalEMG/max(abs(signalEMG)) # Normalize
+
+                    for j in range(nFrames):
+                        start = j*step
+                        end = start + L
+    
+                        phoneLabel = getPhoneLabel(j,L,step,fs,labelSegments)
+
+                        # In the last frame shifting, if the window exceeds the signal
+                        # the last sample of the signal is going to be repeated for filling the exceeding positions in frame
+                        if end > len(signalEMG):
+                            xn = [signalEMG[-1]]*L
+                            xn[0:len(signalEMG)-end] = signalEMG[start:]
+
+                        else: # The normal case
+                            xn = signalEMG[start:end]
+        
+                        TD0[i,j,:] = xn
+
+                # After features for all frames in all signals have been calculated, the 'features' matrix is going to be filled
+                for j in range(nFrames):
+                    phoneLabel = getPhoneLabel(j,L,step,fs,labelSegments)
+                    segmentedEMG[j,0] = float(phoneDict[phoneLabel])
+
+                    for i in range(nSignals):
+                        if STACKING_MODE == 'symmetric':
+                            start = i*L*(2*k+1)+1
+                            end = (i+1)*L*(2*k+1)+1
+                        elif STACKING_MODE == 'backwards':
+                            start = i*L*(k+1)+1
+                            end = (i+1)*L*(k+1)+1
+                        segmentedEMG[j,start:end] = stackingFilter(TD0, i, j, k, L, nFrames)
+
+                np.save(filename.replace('emgSync','segmentedEMGs'),segmentedEMG)
+
+                utt += 1
+                printProgressBar(utt, numberOfUtterances, prefix = '\tProgress:', suffix = f'{utt}/{numberOfUtterances}', length = 50)
 
 def extractFeatures():
     fs = FS
@@ -523,6 +612,8 @@ def main(extracted='features'):
         extractMFCCs()
     elif option == 'hilbert':
         extractHilbertTransform()
+    elif option == 'emgs':
+        extractEMGs()
 
 if __name__ == '__main__':
     main()
